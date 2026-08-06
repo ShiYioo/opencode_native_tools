@@ -156,7 +156,9 @@ enabled_tools = ["read", "glob", "grep", "write", "edit", "apply_patch"]
 OPENCODE_TOOLS_RG_PATH=/path/to/rg
 ```
 
-Windows 下服务按 OpenCode 的顺序从 `PATH` 查找 `rg.exe`，再查找自己的缓存目录。若 PATH 中命中的程序被安全策略限制，请将 `OPENCODE_TOOLS_RG_PATH` 设置为一个允许启动的 `rg.exe` 绝对路径。
+Windows 下服务会按 `PATH` 优先级查找 `rg.exe`，但会跳过 Codex Desktop WindowsApps 中不可由 MCP 启动的内置副本。其他候选和缓存副本会在服务首次使用时验证一次可执行性；成功路径会在进程内缓存，后续 `glob` 和 `grep` 不产生额外探测开销。
+
+没有可用的 ripgrep 时，服务会下载并验证自己的缓存版本。受限网络环境可通过 `OPENCODE_TOOLS_RG_PATH` 指定允许启动的 `rg.exe` 绝对路径。
 
 `websearch` 是可选工具。要启用它，在 MCP 的 `env` 中提供一个 provider 的 key：
 
