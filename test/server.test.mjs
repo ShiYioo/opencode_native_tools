@@ -9,6 +9,32 @@ import { compatibleConfig } from "../src/config.mjs"
 import { parseSkillMarkdown } from "../src/frontmatter.mjs"
 import { npmBinary } from "../src/npm-binary.mjs"
 import { readFile } from "node:fs/promises"
+import { apply as applyCodexConfig, status as codexStatus, unapply as unapplyCodexConfig } from "../src/codex-config.mjs"
+
+test("applies Codex routing without replacing user configuration", async () => {
+  const home=await mkdtemp(join(tmpdir(),"opencode-codex-home-")), previous=process.env.CODEX_HOME
+  process.env.CODEX_HOME=home
+  try {
+    await writeFile(join(home,"config.toml"),'direct_only_tool_namespaces = ["mcp__fastctx"]\n\n[mcp_servers.fastctx]\ncommand = "fastctx"\n\n[mcp_servers.opencode_native_tools]\ncommand = "npx"\nargs = ["-y", "opencode-native-tools-mcp@latest"]\n\n[plugins.example]\nenabled = true\n')
+    await writeFile(join(home,"AGENTS.md"),"Keep this user instruction.\n")
+    await applyCodexConfig(); await applyCodexConfig()
+    const config=await readFile(join(home,"config.toml"),"utf8"), agents=await readFile(join(home,"AGENTS.md"),"utf8"), result=await codexStatus()
+    assert.match(config,/^direct_only_tool_namespaces = \["mcp__fastctx","mcp__opencode_native_tools"\]/m)
+    assert.match(config,/\[mcp_servers\.fastctx\]/)
+    assert.match(config,/\[mcp_servers\.opencode_native_tools\]/)
+    assert.match(config,/command = "npx"/)
+    assert.match(config,/args = \["-y", "opencode-native-tools-mcp@latest"\]/)
+    assert.equal((agents.match(/opencode-native-tools:start/g)||[]).length,1)
+    assert.match(agents,/Keep this user instruction/)
+    assert.deepEqual({mcpConfigured:result.mcpConfigured,directOnly:result.directOnly,agentsConfigured:result.agentsConfigured},{mcpConfigured:true,directOnly:true,agentsConfigured:true})
+    await unapplyCodexConfig()
+    const after=await readFile(join(home,"config.toml"),"utf8"), afterAgents=await readFile(join(home,"AGENTS.md"),"utf8")
+    assert.match(after,/direct_only_tool_namespaces = \["mcp__fastctx"\]/)
+    assert.match(after,/\[mcp_servers\.opencode_native_tools\]/)
+    assert.doesNotMatch(afterAgents,/opencode-native-tools:start/)
+    assert.match(afterAgents,/Keep this user instruction/)
+  } finally { if(previous===undefined)delete process.env.CODEX_HOME;else process.env.CODEX_HOME=previous }
+})
 
 test("runs independently of the OpenCode CLI", async () => {
   const root = await mkdtemp(join(tmpdir(), "opencode-native-mcp-"))

@@ -50,6 +50,15 @@ args = ["-y", "opencode-native-tools-mcp@latest"]
 startup_timeout_sec = 30.0
 ```
 
+安装 MCP 后，建议执行一次配置器，让 Codex 自动优先选择本服务：
+
+```bash
+opencode-native-tools apply
+opencode-native-tools status
+```
+
+如果使用的是本节的 npx 方式，执行 `npx -y opencode-native-tools-mcp@latest apply`。`apply` 会保留已有 MCP 的 `command` 和 `args`，只更新本服务的路由设置、`direct_only_tool_namespaces` 和全局 `AGENTS.md` 中的标记块。完成后重启 Codex 或新建 task。需要撤销自动规则时执行 `opencode-native-tools unapply`。
+
 默认情况下，服务使用 MCP Client 启动它时的工作目录作为项目根目录。
 
 如果需要固定操作某个项目，再额外添加：
