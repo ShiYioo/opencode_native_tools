@@ -536,9 +536,10 @@ test("returns OpenCode-style ripgrep errors for an invalid grep regex", async ()
 test("rejects an empty grep pattern with OpenCode's tool-level error", async () => {
   const root=await mkdtemp(join(tmpdir(),"opencode-grep-empty-"))
   const child=spawn(process.execPath,["bin/opencode-native-tools.mjs"],{cwd:process.cwd(),env:{...process.env,OPENCODE_TOOLS_ROOT:root}})
-  let output="";child.stdout.setEncoding("utf8");child.stdout.on("data",data=>output+=data)
+  let output="";child.stdout.setEncoding("utf8")
+  const complete=new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(new Error("empty grep MCP response timed out")),2000);child.stdout.on("data",data=>{output+=data;if(output.includes('"id":71')){clearTimeout(timer);resolve()}})})
   child.stdin.write(JSON.stringify({jsonrpc:"2.0",id:71,method:"tools/call",params:{name:"grep",arguments:{pattern:""}}})+"\n")
-  await new Promise(resolve=>setTimeout(resolve,150));child.kill()
+  await complete;child.kill()
   assert.match(output,/pattern is required/)
 })
 
