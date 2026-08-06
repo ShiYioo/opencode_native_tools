@@ -1,25 +1,26 @@
 import { spawn, spawnSync } from "node:child_process"
-import { existsSync } from "node:fs"
+import { existsSync, statSync } from "node:fs"
 import { chmod, copyFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { homedir, tmpdir } from "node:os"
-import { dirname, join } from "node:path"
+import { delimiter, dirname, join } from "node:path"
 
 const VERSION="15.1.0"
 const PLATFORM={
   "arm64-darwin":["aarch64-apple-darwin","tar.gz"],"arm64-linux":["aarch64-unknown-linux-gnu","tar.gz"],"x64-darwin":["x86_64-apple-darwin","tar.gz"],"x64-linux":["x86_64-unknown-linux-musl","tar.gz"],"arm64-win32":["aarch64-pc-windows-msvc","zip"],"ia32-win32":["i686-pc-windows-msvc","zip"],"x64-win32":["x86_64-pc-windows-msvc","zip"],
 }
 let pending
-const system=()=>{
-  const name=process.platform==="win32"?"rg.exe":"rg", probe=process.platform==="win32"?spawnSync("where.exe",[name],{windowsHide:true,encoding:"utf8"}):spawnSync("which",[name],{encoding:"utf8"})
-  if(probe.status!==0)return undefined
-  for(const candidate of probe.stdout.split(/\r?\n/).map(value=>value.trim()).filter(Boolean)) {
-    const check=spawnSync(candidate,["--version"],{windowsHide:true,stdio:"ignore"})
-    if(check.status===0)return candidate
+const run=(program,args)=>new Promise((resolve,reject)=>{const child=spawn(program,args,{windowsHide:true});let stderr="",stdout="";child.stdout.on("data",data=>stdout+=data);child.stderr.on("data",data=>stderr+=data);child.on("error",reject);child.on("close",code=>code===0?resolve():reject(new Error(stderr.trim()||stdout.trim()||`ripgrep extraction failed with code ${code}`)) )})
+function cacheDir(){if(process.env.OPENCODE_TOOLS_CACHE_DIR)return join(process.env.OPENCODE_TOOLS_CACHE_DIR,"bin");if(process.platform==="win32")return join(process.env.LOCALAPPDATA||join(homedir(),"AppData","Local"),"opencode-native-tools","cache","bin");return join(process.env.XDG_CACHE_HOME||join(homedir(),".cache"),"opencode-native-tools","bin")}
+function system(){
+  const name=process.platform==="win32"?"rg.exe":"rg"
+  const pathValue=process.env.PATH??process.env.Path??"", search=pathValue?`${pathValue}${delimiter}${cacheDir()}`:cacheDir()
+  const extensions=process.platform==="win32"?(process.env.PATHEXT??process.env.Pathext??".COM;.EXE;.BAT;.CMD").split(";"):['']
+  for(const directory of search.split(delimiter).filter(Boolean)) {
+    const base=join(directory,name), candidates=process.platform==="win32"&&!/\.[^\\/]+$/.test(name)?extensions.map(extension=>base+extension):[base]
+    for(const candidate of candidates)try { if(statSync(candidate).isFile())return candidate } catch {}
   }
   return undefined
 }
-const run=(program,args)=>new Promise((resolve,reject)=>{const child=spawn(program,args,{windowsHide:true});let stderr="",stdout="";child.stdout.on("data",data=>stdout+=data);child.stderr.on("data",data=>stderr+=data);child.on("error",reject);child.on("close",code=>code===0?resolve():reject(new Error(stderr.trim()||stdout.trim()||`ripgrep extraction failed with code ${code}`)) )})
-function cacheDir(){if(process.env.OPENCODE_TOOLS_CACHE_DIR)return join(process.env.OPENCODE_TOOLS_CACHE_DIR,"bin");if(process.platform==="win32")return join(process.env.LOCALAPPDATA||join(homedir(),"AppData","Local"),"opencode-native-tools","cache","bin");return join(process.env.XDG_CACHE_HOME||join(homedir(),".cache"),"opencode-native-tools","bin")}
 async function install(){
   const explicit=process.env.OPENCODE_TOOLS_RG_PATH
   if(explicit&&existsSync(explicit))return explicit
