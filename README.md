@@ -30,6 +30,12 @@ Code CLI -> MCP JSON-RPC (stdio) -> OpenCode Native Tools MCP
 - npm（首次安装项目依赖及可选 formatter 时使用）
 - `websearch` 另需 `EXA_API_KEY` 或 `PARALLEL_API_KEY`
 
+通过 npm 直接使用：
+
+```bash
+npx -y opencode-native-tools-mcp
+```
+
 克隆项目后安装依赖：
 
 ```bash
@@ -54,13 +60,22 @@ npm start
 
 ```toml
 [mcp_servers.opencode_native_tools]
-command = "node"
-args = ["D:/path/to/opencode-tool/bin/opencode-native-tools.mjs"]
+command = "npx"
+args = ["-y", "opencode-native-tools-mcp"]
 startup_timeout_sec = 30.0
 
 [mcp_servers.opencode_native_tools.env]
 # 该 MCP 默认操作的项目根目录；替换为你的实际项目路径。
 OPENCODE_TOOLS_ROOT = "D:/path/to/your-project"
+```
+
+如果使用本地源码开发版，可以把 `command` 和 `args` 改成：
+
+```toml
+[mcp_servers.opencode_native_tools]
+command = "node"
+args = ["D:/path/to/opencode-tool/bin/opencode-native-tools.mjs"]
+startup_timeout_sec = 30.0
 ```
 
 保存后重启 Codex Desktop，或新建一个 task，使其重新加载 MCP 配置。可使用以下命令确认 Codex 已发现服务：
@@ -186,6 +201,28 @@ npm test
 ```
 
 当前测试覆盖独立运行（无 `opencode` CLI）、MCP JSON-RPC、文件读取与截断、BOM/CRLF、编辑匹配、patch 原子失败、ripgrep 截断、shell 超时与取消、webfetch、Exa/Parallel 请求格式、skill 发现、todo 持久化与 OpenCode JSON/JSONC 配置兼容。
+
+## 发布到 npm
+
+本仓库包含 GitHub Actions workflow：`.github/workflows/npm-publish.yml`。创建 GitHub Release 后会自动运行测试并发布 npm 包。
+
+首次启用自动发布前，需要在 GitHub 仓库设置中添加 secret：
+
+```text
+NPM_TOKEN=<你的 npm automation token>
+```
+
+推荐发布流程：
+
+```bash
+npm version patch
+git push
+git push --tags
+```
+
+然后在 GitHub 上基于新 tag 创建 Release。Release 发布后，workflow 会执行 `npm ci`、`npm test` 和 `npm publish --access public`。
+
+也可以在 GitHub Actions 页面手动运行 `Publish to npm` workflow。注意每个 npm 版本号只能发布一次；如果发布失败后需要重试，版本号没变时可以直接重跑 workflow，已经成功发布过的版本必须先升级 `package.json` 的 `version`。
 
 ## 兼容性边界
 

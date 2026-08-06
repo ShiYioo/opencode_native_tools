@@ -1,15 +1,29 @@
 {
   "name": "opencode-native-tools-mcp",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
   "description": "OpenCode-inspired native coding tools exposed over MCP stdio",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ShiYioo/opencode_native_tools.git"
+  },
+  "homepage": "https://github.com/ShiYioo/opencode_native_tools#readme",
+  "bugs": {
+    "url": "https://github.com/ShiYioo/opencode_native_tools/issues"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "templates/",
+    "README.md"
+  ],
   "bin": {
     "opencode-native-tools": "bin/opencode-native-tools.mjs"
   },
   "scripts": {
     "start": "node bin/opencode-native-tools.mjs",
-    "test": "node --test test/**/*.test.mjs"
+    "test": "node --test test/**/*.test.mjs",
+    "prepublishOnly": "npm test"
   },
   "engines": {
     "node": ">=20"
