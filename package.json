@@ -1,0 +1,26 @@
+{
+  "name": "opencode-native-tools-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "OpenCode-inspired native coding tools exposed over MCP stdio",
+  "bin": {
+    "opencode-native-tools": "bin/opencode-native-tools.mjs"
+  },
+  "scripts": {
+    "start": "node bin/opencode-native-tools.mjs",
+    "test": "node --test test/**/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "diff": "^8.0.2",
+    "glob": "^13.0.5",
+    "gray-matter": "^4.0.3",
+    "htmlparser2": "^8.0.2",
+    "ignore": "^7.0.5",
+    "jsonc-parser": "^3.3.1",
+    "turndown": "^7.2.0"
+  }
+}
