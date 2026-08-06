@@ -35,10 +35,9 @@ npm install -g opencode-native-tools-mcp
 command = "opencode-native-tools"
 args = []
 startup_timeout_sec = 30.0
-
-[mcp_servers.opencode_native_tools.env]
-OPENCODE_TOOLS_ROOT = "D:/path/to/your-project"
 ```
+
+默认情况下，服务使用 MCP Client 启动它时的工作目录作为项目根目录。
 
 ### 方式 B：使用 npx，不做全局安装
 
@@ -49,7 +48,13 @@ OPENCODE_TOOLS_ROOT = "D:/path/to/your-project"
 command = "npx"
 args = ["-y", "opencode-native-tools-mcp@latest"]
 startup_timeout_sec = 30.0
+```
 
+默认情况下，服务使用 MCP Client 启动它时的工作目录作为项目根目录。
+
+如果需要固定操作某个项目，再额外添加：
+
+```toml
 [mcp_servers.opencode_native_tools.env]
 OPENCODE_TOOLS_ROOT = "D:/path/to/your-project"
 ```
@@ -60,7 +65,7 @@ Windows 的全局 Codex 配置文件通常是：
 C:\Users\<你的用户名>\.codex\config.toml
 ```
 
-将 `D:/path/to/your-project` 换成实际项目根目录。保存后重启 Codex Desktop，或新建一个 task，让 Codex 重新读取 MCP 配置。
+保存后重启 Codex Desktop，或新建一个 task，让 Codex 重新读取 MCP 配置。
 
 ## 验证是否接入成功
 
@@ -86,7 +91,7 @@ Codex 应调用 `read`、`glob`、`grep`、`write`、`edit`、`apply_patch`、`b
 
 ## 项目根目录
 
-`OPENCODE_TOOLS_ROOT` 是该 MCP 默认操作的项目目录。建议每个项目在自己的 `.codex/config.toml` 中设置它，避免全局配置误操作到另一个仓库。
+`OPENCODE_TOOLS_ROOT` 用于固定该 MCP 默认操作的项目目录。未设置时，服务使用 MCP Client 启动时的工作目录；只有在全局配置需要固定到某个仓库时，才需要设置它。
 
 如果不设置它，服务会使用 Codex 启动 MCP 进程时的工作目录。
 
