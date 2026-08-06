@@ -133,7 +133,6 @@ enabled = false
 
 对 Codex，最稳定的方式是在目标项目根目录添加 `AGENTS.md`。可直接复制本仓库的模板：[templates/AGENTS.md](templates/AGENTS.md)。模板要求 Codex 优先使用本 MCP，并且只在服务不可用或具体调用失败时才回退至宿主工具。
 
-不要为此新增一个“生成 `AGENTS.md`”的 MCP 工具：本项目固定暴露 OpenCode 对照的 11 个公开工具；新增工具会破坏该公开工具清单，而且生成文件仍必须由宿主在写入前批准。需要时，用户可以将模板复制到项目根目录并按团队策略调整。
 
 ## OpenCode 兼容配置
 
