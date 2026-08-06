@@ -187,7 +187,9 @@ test("reports missing OpenCode {file:path} configuration tokens", async () => {
 
 test("uses source-style glob and grep result shapes and persists truncated shell output", async () => {
   const root = await mkdtemp(join(tmpdir(), "opencode-search-"))
-  await writeFile(join(root,"opencode.json"),JSON.stringify({shell:"cmd.exe"}))
+  const shell=process.platform==="win32"?"cmd.exe":process.env.SHELL||"/bin/sh"
+  const command=process.platform==="win32"?"for /L %i in (1,1,30000) do @echo x":"yes x | head -n 30000"
+  await writeFile(join(root,"opencode.json"),JSON.stringify({shell}))
   const runtime = createRuntime(root)
   await mkdir(join(root, "src"))
   await mkdir(join(root, ".git"))
@@ -200,10 +202,10 @@ test("uses source-style glob and grep result shapes and persists truncated shell
   const matches = await runtime.grep({ pattern: "needle" })
   assert.match(matches.output, /Found 1 matches/)
   assert.match(matches.output, /Line 1: const needle = 1;/)
-  const shell = await runtime.bash({ command: "for /L %i in (1,1,30000) do @echo x" })
-  assert.equal(shell.metadata.truncated, true)
-  assert.match(shell.output, /Full output saved to:/)
-  assert.ok(shell.metadata.outputPath)
+  const result = await runtime.bash({ command })
+  assert.equal(result.metadata.truncated, true)
+  assert.match(result.output, /Full output saved to:/)
+  assert.ok(result.metadata.outputPath)
 })
 
 test("uses the configured shell output byte limit when deciding truncation", async () => {
@@ -549,8 +551,10 @@ test("uses OpenCode's positive experimental bash default timeout flag", async ()
 
 test("uses OpenCode tool_output limits for bash tail truncation", async () => {
   const root=await mkdtemp(join(tmpdir(),"opencode-shell-limits-"))
-  await writeFile(join(root,"opencode.json"),JSON.stringify({shell:"cmd.exe",tool_output:{max_lines:2,max_bytes:1024}}))
-  const result=await createRuntime(root).bash({command:"echo one & echo two & echo three"})
+  const shell=process.platform==="win32"?"cmd.exe":process.env.SHELL||"/bin/sh"
+  const command=process.platform==="win32"?"echo one & echo two & <nul set /p =three":"printf 'one\\ntwo\\nthree'"
+  await writeFile(join(root,"opencode.json"),JSON.stringify({shell,tool_output:{max_lines:2,max_bytes:1024}}))
+  const result=await createRuntime(root).bash({command})
   assert.match(result.output,/three/)
   assert.doesNotMatch(result.output,/one/)
   assert.equal(result.metadata.truncated,true)
@@ -563,10 +567,11 @@ test("keeps a complete UTF-8 character for a single oversized shell output line"
   assert.doesNotMatch(result.text,/�/)
 })
 
-test("falls back from an unavailable configured Windows shell", async () => {
+test("falls back from an unavailable configured shell", async () => {
   const root=await mkdtemp(join(tmpdir(),"opencode-shell-fallback-"))
   await writeFile(join(root,"opencode.json"),JSON.stringify({shell:"definitely-not-a-shell.exe"}))
-  const result=await createRuntime(root).bash({command:"Write-Output shell-fallback"})
+  const command=process.platform==="win32"?"Write-Output shell-fallback":"echo shell-fallback"
+  const result=await createRuntime(root).bash({command})
   assert.match(result.output,/shell-fallback/)
 })
 
