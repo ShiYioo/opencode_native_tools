@@ -156,6 +156,8 @@ enabled_tools = ["read", "glob", "grep", "write", "edit", "apply_patch"]
 OPENCODE_TOOLS_RG_PATH=/path/to/rg
 ```
 
+Windows 如果 PATH 中的 `rg.exe` 位于 `WindowsApps` 或被安全策略限制，服务会先探测其可执行性；探测失败时自动改用自己的缓存版本。企业网络无法下载时，请将 `OPENCODE_TOOLS_RG_PATH` 设置为一个允许启动的 `rg.exe` 绝对路径。
+
 `websearch` 是可选工具。要启用它，在 MCP 的 `env` 中提供一个 provider 的 key：
 
 ```toml
