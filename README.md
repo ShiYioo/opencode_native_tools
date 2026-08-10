@@ -50,14 +50,14 @@ args = ["-y", "opencode-native-tools-mcp@latest"]
 startup_timeout_sec = 30.0
 ```
 
-安装 MCP 后，建议执行一次配置器，让 Codex 自动优先选择本服务：
+安装 MCP 后，建议执行一次配置器，让 Codex 自动优先使用本服务进行读取和搜索：
 
 ```bash
 opencode-native-tools apply
 opencode-native-tools status
 ```
 
-如果使用的是本节的 npx 方式，执行 `npx -y opencode-native-tools-mcp@latest apply`。`apply` 会保留已有 MCP 的 `command` 和 `args`，只更新本服务的路由设置、`direct_only_tool_namespaces` 和全局 `AGENTS.md` 中的标记块。完成后重启 Codex 或新建 task。需要撤销自动规则时执行 `opencode-native-tools unapply`。
+如果使用的是本节的 npx 方式，执行 `npx -y opencode-native-tools-mcp@latest apply`。`apply` 会保留已有 MCP 的 `command` 和 `args`，并更新全局 `AGENTS.md` 中的标记块。它不会把本 MCP 加入 `direct_only_tool_namespaces`：文件修改必须交给 Codex 原生的 `write` / `edit` / `apply_patch`，这样 Codex 才能显示文件修改 Diff。完成后重启 Codex 或新建 task。需要撤销自动规则时执行 `opencode-native-tools unapply`。
 
 默认情况下，服务使用 MCP Client 启动它时的工作目录作为项目根目录。
 
@@ -144,9 +144,9 @@ enabled_tools = ["read", "glob", "grep", "write", "edit", "apply_patch"]
 
 ## 让 Codex 优先使用本 MCP
 
-服务会在 MCP 初始化时声明对文件读取、搜索、写入、编辑、patch 和 shell 的工具偏好。要让 Codex 在项目中更稳定地优先使用本 MCP，可以在目标仓库根目录放置 `AGENTS.md`。
+服务会在 MCP 初始化时声明对文件读取和搜索的工具偏好。文件修改使用 Codex 原生工具，以便 Codex 记录并显示文件 Diff。要让 Codex 在项目中更稳定地优先使用本 MCP，可以在目标仓库根目录放置 `AGENTS.md`。
 
-仓库提供了可直接使用的模板：[templates/AGENTS.md](templates/AGENTS.md)。它要求 Codex 优先使用 `opencode_native_tools`，仅在服务不可用或具体调用失败时才回退到宿主工具。
+仓库提供了可直接使用的模板：[templates/AGENTS.md](templates/AGENTS.md)。它要求 Codex 使用 `opencode_native_tools` 进行读取和搜索，并使用 Codex 原生编辑工具修改文件，以保留 Codex 的 Diff 展示。
 
 ## 搜索与可选依赖
 

@@ -57,7 +57,7 @@ function setSectionKeys(text, name, keys) {
   }
   return text.slice(0,found.start)+body+text.slice(found.end)
 }
-function agentsBlock() { return `${START}\nFor file and shell work, prefer the \`opencode_native_tools\` MCP server.\nUse its \`read\`, \`glob\`, \`grep\`, \`write\`, \`edit\`, \`apply_patch\`, and \`bash\` tools before equivalent host-native tools.\nOnly fall back when the server is unavailable or the specific call fails.\n${END}` }
+function agentsBlock() { return `${START}\nUse the \`opencode_native_tools\` MCP server for \`read\`, \`glob\`, and \`grep\` when inspecting the project.\nUse Codex native file-editing tools for \`write\`, \`edit\`, and \`apply_patch\` so Codex can display the file modification diff.\nUse the MCP \`bash\`, \`webfetch\`, \`websearch\`, \`skill\`, and \`todowrite\` tools when appropriate.\n${END}` }
 function updateAgents(text, remove=false) {
   const re=new RegExp(`${START}[\\s\\S]*?${END}\\n?`,"m")
   if(remove)return text.replace(re,"").replace(/^\s+$/m,"").trimEnd()+(text.trim()?"\n":"")
@@ -67,7 +67,9 @@ function updateAgents(text, remove=false) {
 export async function apply() {
   const p=paths(); await mkdir(p.home,{recursive:true})
   let config=existsSync(p.config)?await readFile(p.config,"utf8"):""
-  config=setDirectOnly(config)
+  // Codex renders file diffs only for its native editing tools. Keep this MCP
+  // available, but remove any old direct-only routing for this namespace.
+  config=removeDirectOnly(config)
   const name=`mcp_servers.${SERVER_NAME}`, existing=section(config,name), body=existing?config.slice(existing.start,existing.end):"", keys={startup_timeout_sec:"30.0"}
   if(!/^command\s*=/m.test(body))keys.command='"opencode-native-tools"'
   if(!/^args\s*=/m.test(body))keys.args="[]"

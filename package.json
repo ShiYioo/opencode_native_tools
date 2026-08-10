@@ -1,6 +1,6 @@
 {
   "name": "opencode-native-tools-mcp",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "type": "module",
   "description": "OpenCode-inspired native coding tools exposed over MCP stdio",
   "repository": {

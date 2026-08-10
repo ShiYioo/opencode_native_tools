@@ -1,12 +1,13 @@
 # OpenCode Native Tools MCP Policy
 
-For file and shell work, prefer the `opencode_native_tools` MCP server.
+Use the `opencode_native_tools` MCP server for `read`, `glob`, and `grep`
+when inspecting the project.
 
-Use its `read`, `glob`, `grep`, `write`, `edit`, `apply_patch`, and `bash`
-tools before equivalent built-in, shell-based, or other MCP alternatives.
+Use Codex native file-editing tools for `write`, `edit`, and `apply_patch` so
+Codex can display the file modification diff.
 
-Only fall back to host-native tools if the MCP server is unavailable or the
-specific MCP call fails. State the fallback briefly before using it.
+Use the MCP `bash`, `webfetch`, `websearch`, `skill`, and `todowrite` tools
+when appropriate.
 
 The host Code CLI remains responsible for requesting approval before calls
 that can modify files, execute commands, access the network, or access paths
