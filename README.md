@@ -8,8 +8,8 @@
 
 | 工具 | 用途 |
 | --- | --- |
-| `read` | 读取文件、目录、图片和 PDF；支持分页、截断、二进制识别 |
-| `glob` / `grep` | 文件搜索与内容搜索 |
+| `read` / `readMany` | 紧凑读取文件、目录、图片和 PDF；支持分页、截断、批量读取和二进制识别 |
+| `glob` / `grep` | 文件搜索与紧凑内容搜索 |
 | `write` / `edit` / `apply_patch` | 写入、上下文编辑和 OpenCode patch |
 | `bash` | Shell 命令、超时、输出截断和进程树清理 |
 | `webfetch` / `websearch` | 网页读取，以及 Exa / Parallel 搜索 |
@@ -17,6 +17,12 @@
 | `skill` | OpenCode、Claude、项目和 URL Skill 发现 |
 
 `task`、`question`、`lsp`、OpenCode UI `ask`、插件 hooks 和内部控制工具不包含在内，因为它们依赖 OpenCode 的交互界面、子代理、LSP 会话或插件运行时。
+
+## 紧凑输出
+
+`read` 默认只返回带行号的正文；`grep` 默认返回 `文件:行号:内容`。两者不会再把正文复制到 `preview` 或 `display.text`。读取被截断时，正文末尾会给出 `startLine`、`endLine`、`totalLines` 和 `nextOffset`；受字节上限影响而无法确认总行数时，`totalLines=unknown`。
+
+需要机器可读元数据时传入 `responseFormat: "detailed"`。此时 `structuredContent` 只包含分页或匹配统计字段，不会重复正文。`readMany` 最多读取 8 个文件，默认每个文件 200 行，整批输出最多 100 KB；单个文件失败会作为该文件的结果返回，不会中断其他文件。
 
 ## 安装到 Codex
 

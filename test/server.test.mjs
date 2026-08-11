@@ -61,19 +61,23 @@ test("runs independently of the OpenCode CLI", async () => {
   child.kill()
   assert.match(output, /opencode-native-tools/)
   assert.match(output, /"read"/)
-  assert.match(output, /fixture\.txt/)
   assert.match(output, /native tool result/)
   assert.doesNotMatch(output, /"task"/)
   assert.doesNotMatch(output, /definitely-not-installed/)
-  const catalog=output.split(/\r?\n/).filter(Boolean).map(JSON.parse).find(message=>message.id===2).result.tools
-  const read=catalog.find(tool=>tool.name==="read"), bash=catalog.find(tool=>tool.name==="bash")
+  const messages=output.split(/\r?\n/).filter(Boolean).map(JSON.parse), catalog=messages.find(message=>message.id===2).result.tools
+  const readResult=messages.find(message=>message.id===3).result, read=catalog.find(tool=>tool.name==="read"), readMany=catalog.find(tool=>tool.name==="readMany"), grep=catalog.find(tool=>tool.name==="grep"), bash=catalog.find(tool=>tool.name==="bash")
   assert.deepEqual(read.inputSchema.properties.offset,{type:"integer",minimum:0,description:"The line number to start reading from (1-indexed)"})
   assert.deepEqual(read.inputSchema.properties.limit,{type:"integer",minimum:0,description:"The maximum number of lines to read (defaults to 2000)"})
+  assert.equal(read.inputSchema.properties.responseFormat.default,"text")
+  assert.equal(readMany.inputSchema.properties.files.maxItems,8)
+  assert.equal(grep.inputSchema.properties.responseFormat.default,"text")
   assert.deepEqual(bash.inputSchema.properties.timeout,{type:"integer",minimum:1,description:"Optional timeout in milliseconds"})
   assert.match(read.description,/2000 lines/)
   assert.match(catalog.find(tool=>tool.name==="apply_patch").description,/\*\*\* Begin Patch/)
   assert.doesNotMatch(catalog.find(tool=>tool.name==="glob").description,/Task tool/)
   assert.doesNotMatch(catalog.find(tool=>tool.name==="webfetch").description,/automatically upgraded/i)
+  assert.match(readResult.content[0].text,/1: native tool result/)
+  assert.equal(Object.hasOwn(readResult,"structuredContent"),false)
 })
 
 test("preserves BOM and CRLF while applying OpenCode-style edits and patches", async () => {
@@ -119,16 +123,17 @@ test("resolves formatter binaries from the independent OpenCode-style npm cache"
   try { assert.equal(await npmBinary("prettier","prettier"),bin) } finally { if(previous===undefined)delete process.env.OPENCODE_TOOLS_NPM_CACHE_DIR;else process.env.OPENCODE_TOOLS_NPM_CACHE_DIR=previous }
 })
 
-test("matches OpenCode read pagination, range errors, binary checks, and image sniffing", async () => {
+test("returns compact read pagination with optional structured metadata", async () => {
   const root = await mkdtemp(join(tmpdir(), "opencode-read-"))
   const runtime = createRuntime(root)
   await writeFile(join(root, "lines.txt"), "one\ntwo\nthree\n")
   const page = await runtime.read({ filePath: "lines.txt", offset: 2, limit: 1 })
   assert.equal(page.title,"lines.txt")
-  assert.match(page.output,/<content>\n2: two/)
-  assert.doesNotMatch(page.output,/<content>\n\n2: two/)
-  assert.match(page.output, /2: two/)
-  assert.match(page.output, /Showing lines 2-2 of 3\. Use offset=3 to continue/)
+  assert.match(page.output, /^2: two/m)
+  assert.match(page.output, /\[truncated startLine=2 endLine=2 totalLines=3 nextOffset=3 reason=limit\]/)
+  assert.equal(page.structuredContent,null)
+  const detailed=await runtime.read({filePath:"lines.txt",offset:2,limit:1,responseFormat:"detailed"})
+  assert.deepEqual(detailed.structuredContent,{path:join(root,"lines.txt"),type:"file",startLine:2,endLine:2,totalLines:3,nextOffset:3,truncated:true,reason:"limit"})
   await assert.rejects(() => runtime.read({ filePath: "lines.txt", offset: 5 }), /Offset 5 is out of range for this file \(3 lines\)/)
   await writeFile(join(root, "payload.txt"), Buffer.from([0, 1, 2]))
   await assert.rejects(() => runtime.read({ filePath: "payload.txt" }), /Cannot read binary file/)
@@ -147,15 +152,29 @@ test("uses OpenCode MIME fallback for known attachment extensions", async () => 
   assert.equal(result.output, "Image read successfully")
 })
 
-test("streams normal read files while retaining OpenCode pagination and unterminated final lines", async () => {
+test("streams normal read files while retaining pagination and unterminated final lines", async () => {
   const root=await mkdtemp(join(tmpdir(),"opencode-read-stream-")), runtime=createRuntime(root)
   await writeFile(join(root,"large.txt"),`${"first\n"}${"middle\n".repeat(30_000)}final-without-newline`)
   const first=await runtime.read({filePath:"large.txt",limit:1})
   assert.match(first.output,/1: first/)
-  assert.match(first.output,/Showing lines 1-1 of 30002/)
+  assert.match(first.output,/totalLines=30002 nextOffset=2 reason=limit/)
   const final=await runtime.read({filePath:"large.txt",offset:30002,limit:1})
   assert.match(final.output,/30002: final-without-newline/)
-  assert.match(final.output,/End of file - total 30002 lines/)
+  assert.doesNotMatch(final.output,/truncated/)
+  assert.equal(final.metadata.totalLines,30002)
+})
+
+test("reads multiple files with isolated errors and detailed summaries", async () => {
+  const root=await mkdtemp(join(tmpdir(),"opencode-read-many-")), runtime=createRuntime(root)
+  await writeFile(join(root,"one.txt"),"one\n")
+  await writeFile(join(root,"two.txt"),"two\nthree\n")
+  const result=await runtime.readMany({files:[{filePath:"one.txt"},{filePath:"missing.txt"},{filePath:"two.txt",limit:1}],responseFormat:"detailed"})
+  assert.match(result.output,/== one\.txt ==\n1: one/)
+  assert.match(result.output,/== missing\.txt ==\n\[error: File not found/)
+  assert.match(result.output,/== two\.txt ==\n1: two/)
+  assert.equal(result.structuredContent.files.length,3)
+  assert.equal(result.structuredContent.files[1].status,"error")
+  assert.equal(result.structuredContent.files[2].nextOffset,2)
 })
 
 test("propagates MCP abort signals to stream-backed reads", async () => {
@@ -212,7 +231,7 @@ test("reports missing OpenCode {file:path} configuration tokens", async () => {
   await assert.rejects(()=>createRuntime(root).read({filePath:"anything.txt"}),/bad file reference.*missing-shell\.txt.*does not exist/)
 })
 
-test("uses source-style glob and grep result shapes and persists truncated shell output", async () => {
+test("uses compact grep results and persists truncated shell output", async () => {
   const root = await mkdtemp(join(tmpdir(), "opencode-search-"))
   const shell=process.platform==="win32"?"cmd.exe":process.env.SHELL||"/bin/sh"
   const command=process.platform==="win32"?"for /L %i in (1,1,30000) do @echo x":"yes x | head -n 30000"
@@ -227,8 +246,8 @@ test("uses source-style glob and grep result shapes and persists truncated shell
   assert.match(found.output, /src[\\/]one\.js/)
   assert.equal(found.metadata.count, 1)
   const matches = await runtime.grep({ pattern: "needle" })
-  assert.match(matches.output, /Found 1 matches/)
-  assert.match(matches.output, /Line 1: const needle = 1;/)
+  assert.match(matches.output, /one\.js:1:const needle = 1;/)
+  assert.equal(matches.structuredContent,null)
   const result = await runtime.bash({ command })
   assert.equal(result.metadata.truncated, true)
   assert.match(result.output, /Full output saved to:/)

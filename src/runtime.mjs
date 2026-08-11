@@ -18,7 +18,7 @@ import { CUSTOMIZE_OPENCODE_SKILL } from "./customize-opencode-skill.mjs"
 import { parseSkillMarkdown } from "./frontmatter.mjs"
 import { formatFile } from "./formatter.mjs"
 
-const READ_LIMIT = 2000, MAX_LINE_LENGTH = 2000, READ_BYTES = 50 * 1024
+const READ_LIMIT = 2000, MAX_LINE_LENGTH = 2000, READ_BYTES = 50 * 1024, READ_MANY_LIMIT = 8, READ_MANY_BYTES = 100 * 1024
 const BINARY_EXTENSIONS = new Set([".zip", ".tar", ".gz", ".exe", ".dll", ".so", ".class", ".jar", ".war", ".7z", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".odt", ".ods", ".odp", ".bin", ".dat", ".obj", ".o", ".a", ".lib", ".wasm", ".pyc", ".pyo"])
 const safeSkillFile = value => {
   if(typeof value!=="string"||!value||value.includes("\\")||value.includes("\0")||value.includes("?")||value.includes("#")||URL.canParse(value)||value.startsWith("/")||/^[a-z]:/i.test(value))return false
@@ -141,7 +141,7 @@ export function createRuntime(root) {
   async function read(args, _session, signal) {
     await config
     if(signal?.aborted)throw new Error("read aborted")
-    const path = resolvePath(args.filePath), offset = args.offset || 1, limit = args.limit ?? READ_LIMIT
+    const path = resolvePath(args.filePath), offset = args.offset || 1, limit = args.limit ?? READ_LIMIT, maxBytes = args._maxBytes ?? READ_BYTES
     let info
     try { info = await stat(path) } catch (error) {
       if (error?.code !== "ENOENT") throw error
@@ -159,8 +159,9 @@ export function createRuntime(root) {
       }
       const items = names.slice(offset - 1, offset - 1 + limit)
       const more=offset-1+items.length<entries.length
-      const output=`<path>${path}</path>\n<type>directory</type>\n<entries>\n${items.join("\n")}\n${more?`\n(Showing ${items.length} of ${entries.length} entries. Use 'offset' parameter to read beyond entry ${offset+items.length})`:`\n(${entries.length} entries)`}\n</entries>`
-      return {title:title(path),output,metadata:{preview:items.slice(0,20).join("\n"),truncated:more,loaded:[],display:{type:"directory",path,entries:items,offset,totalEntries:entries.length,truncated:more},externalPaths:external(path)?[path]:[]}}
+      const details={path,type:"directory",startLine:offset,endLine:offset+items.length-1,totalLines:entries.length,nextOffset:more?offset+items.length:null,truncated:more,reason:more?"limit":null}
+      const output=[...items,...(more?[`[truncated startLine=${details.startLine} endLine=${details.endLine} totalLines=${details.totalLines} nextOffset=${details.nextOffset} reason=limit]`]:[])].join("\n")
+      return {title:title(path),output,metadata:{...details,externalPaths:external(path)?[path]:[]},structuredContent:args.responseFormat==="detailed"?details:null}
     }
     // OpenCode samples ordinary files before choosing an attachment or binary path.
     // Do not load a potentially large text file merely to render one page.
@@ -169,7 +170,7 @@ export function createRuntime(root) {
     try { if(sample.length) await handle.read(sample,0,sample.length,0) } finally { await handle.close() }
     const mime=attachmentMime(sample) ?? fallbackMime(path)
     const bytes=mime?await readFile(path,{signal}):undefined
-    if(mime) { const output=mime==="application/pdf"?"PDF read successfully":"Image read successfully"; return {title:title(path),output,attachment:{mimeType:mime,data:bytes.toString("base64")},metadata:{preview:output,truncated:false,loaded:[],externalPaths:external(path)?[path]:[]}} }
+    if(mime) { const output=mime==="application/pdf"?"PDF read successfully":"Image read successfully",details={path,type:mime,startLine:null,endLine:null,totalLines:null,nextOffset:null,truncated:false,reason:null}; return {title:title(path),output,attachment:{mimeType:mime,data:bytes.toString("base64")},metadata:{...details,externalPaths:external(path)?[path]:[]},structuredContent:args.responseFormat==="detailed"?details:null} }
     if (binary(path, sample)) throw new Error(`Cannot read binary file: ${path}`)
     const shown=[]; let used=0, count=0, cut=false, more=false, stopped=false, pending=""
     const decoder=new TextDecoder("utf-8")
@@ -180,7 +181,7 @@ export function createRuntime(root) {
       if(shown.length>=limit){more=true;return}
       if(line.length>MAX_LINE_LENGTH)line=line.slice(0,MAX_LINE_LENGTH)+`... (line truncated to ${MAX_LINE_LENGTH} chars)`
       const size=Buffer.byteLength(line,"utf8")+(shown.length?1:0)
-      if(used+size>READ_BYTES){cut=true;more=true;stopped=true;return}
+      if(used+size>maxBytes){cut=true;more=true;stopped=true;return}
       shown.push(line);used+=size
     }
     const stream=createReadStream(path,{signal})
@@ -193,9 +194,34 @@ export function createRuntime(root) {
     if(!stopped){pending+=decoder.decode();if(pending!=="")consume(pending.replace(/\r$/,""))}
     if(offset > count && !(count === 0 && offset === 1)) throw new Error(`Offset ${offset} is out of range for this file (${count} lines)`)
     const last=offset+shown.length-1, next=last+1, truncated=more||cut
-    const note=cut?`(Output capped at 50 KB. Showing lines ${offset}-${last}. Use offset=${next} to continue.)`:more?`(Showing lines ${offset}-${last} of ${count}. Use offset=${next} to continue.)`:`(End of file - total ${count} lines)`
-    const output=`<path>${path}</path>\n<type>file</type>\n<content>\n${shown.map((line,index)=>`${index+offset}: ${line}`).join("\n")}\n\n${note}\n</content>`
-    return {title:title(path),output,metadata:{preview:shown.slice(0,20).join("\n"),truncated,loaded:[],display:{type:"file",path,text:shown.join("\n"),lineStart:offset,lineEnd:last,totalLines:count,truncated},externalPaths:external(path)?[path]:[]}}
+    const details={path,type:"file",startLine:offset,endLine:last,totalLines:cut?null:count,nextOffset:truncated?next:null,truncated,reason:cut?"maxBytes":more?"limit":null}
+    const output=[...shown.map((line,index)=>`${index+offset}: ${line}`),...(truncated?[`[truncated startLine=${details.startLine} endLine=${details.endLine} totalLines=${details.totalLines??"unknown"} nextOffset=${details.nextOffset} reason=${details.reason}]`]:[])].join("\n")
+    return {title:title(path),output,metadata:{...details,externalPaths:external(path)?[path]:[]},structuredContent:args.responseFormat==="detailed"?details:null}
+  }
+
+  async function readMany(args, session, signal) {
+    await config
+    if(args.files.length>READ_MANY_LIMIT)throw new Error(`readMany accepts at most ${READ_MANY_LIMIT} files`)
+    const output=[], files=[], externalPaths=[]
+    let used=0, nextFileIndex=null, truncated=false
+    for(let index=0;index<args.files.length;index++) {
+      const item=args.files[index], header=`== ${item.filePath} ==\n`
+      if(used+Buffer.byteLength(header,"utf8")+256>READ_MANY_BYTES) { truncated=true;nextFileIndex=index;break }
+      try {
+        const result=await read({...item,limit:item.limit??200,responseFormat:"detailed",_maxBytes:Math.max(1,READ_MANY_BYTES-used-Buffer.byteLength(header,"utf8")-192)},session,signal)
+        const block=`${header}${result.output}`
+        output.push(block);used+=Buffer.byteLength(block,"utf8")+(output.length>1?2:0)
+        files.push({filePath:item.filePath,status:"ok",...result.structuredContent})
+        externalPaths.push(...(result.metadata.externalPaths??[]))
+      } catch(error) {
+        const message=error instanceof Error?error.message:String(error), block=`${header}[error: ${message}]`
+        output.push(block);used+=Buffer.byteLength(block,"utf8")+(output.length>1?2:0)
+        files.push({filePath:item.filePath,status:"error",error:message})
+      }
+    }
+    if(truncated)output.push(`[truncated nextFileIndex=${nextFileIndex} reason=maxBatchBytes]`)
+    const details={files,truncated,nextFileIndex,reason:truncated?"maxBatchBytes":null}
+    return {title:`${files.length} files`,output:output.join("\n\n"),metadata:{...details,externalPaths:[...new Set(externalPaths)]},structuredContent:args.responseFormat==="detailed"?details:null}
   }
 
   async function globFiles(args, _session, signal) {
@@ -232,7 +258,10 @@ export function createRuntime(root) {
     await config
     if (!args.pattern) throw new Error("pattern is required")
     const path = resolvePath(args.path), externalPaths=external(path)?[path]:[];let input;try{input=await stat(path)}catch(error){if(error?.code!=="ENOENT")throw error};const cwd = input?.isDirectory() ? path : dirname(path)
-    const result = await rgLines(["--no-config", "--json", "--hidden", "--no-messages", ...(args.include ? [`--glob=${args.include}`] : []), "--glob=!**/.git/**", "--", args.pattern, "."], cwd,{signal}), rows=result.rows.map(line=>{try{const item=JSON.parse(line);if(item.type!=="match")return;const data=item.data;return {path:resolve(cwd,data.path.text.replace(/^(?:\.[\\/])+/,"")),line:data.line_number,text:data.lines.text.length>2000?`${data.lines.text.slice(0,2000)}...`:data.lines.text}}catch{}}).filter(Boolean);if(!rows.length)return {title:args.pattern,output:"No files found",metadata:{matches:0,truncated:false,externalPaths}};const truncated=result.truncated||rows.length===100, output=[`Found ${rows.length} matches${truncated?" (more matches available)":""}`];let current="";for(const row of rows){if(current!==row.path){if(current)output.push("");current=row.path;output.push(`${row.path}:`)}output.push(`  Line ${row.line}: ${row.text}`)}if(truncated)output.push("","(Results truncated. Consider using a more specific path or pattern.)");return {title:args.pattern,output:output.join("\n"),metadata:{matches:rows.length,truncated,externalPaths}}
+    const result = await rgLines(["--no-config", "--json", "--hidden", "--no-messages", ...(args.include ? [`--glob=${args.include}`] : []), "--glob=!**/.git/**", "--", args.pattern, "."], cwd,{signal}), rows=result.rows.map(line=>{try{const item=JSON.parse(line);if(item.type!=="match")return;const data=item.data;return {path:resolve(cwd,data.path.text.replace(/^(?:\.[\\/])+/,"")),line:data.line_number,text:(data.lines.text.length>2000?`${data.lines.text.slice(0,2000)}...`:data.lines.text).replace(/\r?\n$/,"")}}catch{}}).filter(Boolean), truncated=result.truncated||rows.length===100, details={matches:rows.length,truncated,nextOffset:null,reason:truncated?"maxResults":null}
+    if(!rows.length)return {title:args.pattern,output:"No files found",metadata:{...details,externalPaths},structuredContent:args.responseFormat==="detailed"?details:null}
+    const output=[...rows.map(row=>`${row.path}:${row.line}:${row.text}`),...(truncated?[`[truncated matches=${rows.length} reason=maxResults]`]:[])].join("\n")
+    return {title:args.pattern,output,metadata:{...details,externalPaths},structuredContent:args.responseFormat==="detailed"?details:null}
   }
 
   async function write(args) { const cfg=await config; const path = resolvePath(args.filePath), exists=existsSync(path), source = exists ? await readFile(path, "utf8") : "", [sourceBom] = bom(source), [incomingBom, content] = bom(args.content); await atomicWrite(path, encode(content, sourceBom || incomingBom));await formatFile(root,path,cfg.formatter);return {title:title(path),output:"Wrote file successfully.",metadata:{diagnostics:{},filepath:path,exists,externalPaths:external(path)?[path]:[]}} }
@@ -359,5 +388,5 @@ export function createRuntime(root) {
   async function skill(args) { const cfg=await config, cache=resolvePath(".opencode-tools/skills-cache");await cacheSkillURLs(cfg.skills.urls,cache);const home=process.env.OPENCODE_TEST_HOME||homedir(), projectDirs=await projectDirectories(), configured=cfg.skills.paths.map(path=>path.startsWith("~/")?resolve(home,path.slice(2)):resolvePath(path)), externalSkills=!flag("OPENCODE_DISABLE_EXTERNAL_SKILLS"), claudeSkills=externalSkills&&!flag("OPENCODE_DISABLE_CLAUDE_CODE")&&!flag("OPENCODE_DISABLE_CLAUDE_CODE_SKILLS"), externalRoots=[...(claudeSkills?[resolve(home,".claude"),...projectDirs.map(dir=>resolve(dir,".claude"))]:[]),...(externalSkills?[resolve(home,".agents"),...projectDirs.map(dir=>resolve(dir,".agents"))]:[])], opencodeRoots=[process.env.OPENCODE_CONFIG_DIR??resolve(home,".config","opencode"),resolvePath(".opencode")],found=[];for(const base of externalRoots)if(existsSync(base))for(const file of await glob("skills/**/SKILL.md",{cwd:base,absolute:true,dot:true}))found.push(file);for(const base of opencodeRoots)if(existsSync(base))for(const file of await glob("{skill,skills}/**/SKILL.md",{cwd:base,absolute:true,dot:true}))found.push(file);for(const base of configured)if(existsSync(base))for(const file of await glob("**/SKILL.md",{cwd:base,absolute:true,dot:true}))found.push(file);for(const file of await glob("**/{SKILL.md,*.md}",{cwd:cache,absolute:true,dot:true}))found.push(file);const infos=[];for(const file of found){const parsed=parseSkillMarkdown(await readFile(file,"utf8"));if(parsed)infos.push({file,...parsed})};const unique=new Map;for(const info of infos)unique.set(info.name,info);const info=unique.get(args.name)??(args.name==="customize-opencode"?{file:"<built-in>",name:"customize-opencode",content:CUSTOMIZE_OPENCODE_SKILL,builtin:true}:undefined);if(!info)throw new Error(`Skill "${args.name}" not found. Available skills: ${[...unique.keys(),"customize-opencode"].toSorted().join(", ")}`);const base=dirname(info.file), files=info.builtin?[]:(await glob("**/*",{cwd:base,absolute:true,dot:true,nodir:true,ignore:["**/SKILL.md"]})).slice(0,10);return {title:`Loaded skill: ${info.name}`,output:[`<skill_content name="${info.name}">`,`# Skill: ${info.name}`,"",info.content.trim(),"",`Base directory for this skill: ${base}`,"Relative paths in this skill (e.g., scripts/, reference/) are relative to this base directory.","Note: file list is sampled.","","<skill_files>",files.map(file=>`<file>${file}</file>`).join("\n"),"</skill_files>","</skill_content>"].join("\n"),metadata:{name:info.name,dir:base,externalPaths:info.builtin?[]:(external(base)?[base]:[])}} }
   async function todo(args, sessionID) { await config; const state=resolvePath(join(".opencode-tools","todos",`${encodeURIComponent(sessionID)}.json`));for(const item of args.todos){if(!item||typeof item!=="object"||typeof item.content!=="string"||typeof item.status!=="string"||typeof item.priority!=="string")throw new Error("Each todo must include content, status, and priority strings.")};await atomicWrite(state,JSON.stringify(args.todos,null,2)+"\n");return {title:`${args.todos.filter(item=>item.status!=="completed").length} todos`,output:JSON.stringify(args.todos,null,2),metadata:{todos:args.todos}} }
   async function dispose() { disposed=true; for (const task of [...shellTasks]) task.terminate() }
-  return { read, glob: globFiles, grep, write, edit, applyPatch, bash, webfetch, websearch, skill, todo, dispose }
+  return { read, readMany, glob: globFiles, grep, write, edit, applyPatch, bash, webfetch, websearch, skill, todo, dispose }
 }
