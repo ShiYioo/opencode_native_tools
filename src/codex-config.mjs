@@ -57,7 +57,7 @@ function setSectionKeys(text, name, keys) {
   }
   return text.slice(0,found.start)+body+text.slice(found.end)
 }
-function agentsBlock() { return `${START}\nUse the \`opencode_native_tools\` MCP server for \`read\`, \`glob\`, and \`grep\` when inspecting the project.\nUse Codex native file-editing tools for \`write\`, \`edit\`, and \`apply_patch\` so Codex can display the file modification diff.\nUse the MCP \`bash\`, \`webfetch\`, \`websearch\`, \`skill\`, and \`todowrite\` tools when appropriate.\n${END}` }
+function agentsBlock() { return `${START}\nUse the \`opencode_native_tools\` MCP server for \`read\`, \`glob\`, and \`grep\` when inspecting the project.\nRead files with the \`read\` or \`readMany\` tool, not \`resources/read\`. Resources only provide optional server diagnostics; do not repeatedly probe them.\nUse Codex native file-editing tools for \`write\`, \`edit\`, and \`apply_patch\` so Codex can display the file modification diff.\nUse the MCP \`bash\`, \`webfetch\`, \`websearch\`, \`skill\`, and \`todowrite\` tools when appropriate.\n${END}` }
 function updateAgents(text, remove=false) {
   const re=new RegExp(`${START}[\\s\\S]*?${END}\\n?`,"m")
   if(remove)return text.replace(re,"").replace(/^\s+$/m,"").trimEnd()+(text.trim()?"\n":"")

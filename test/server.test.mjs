@@ -26,6 +26,8 @@ test("applies Codex routing without replacing user configuration", async () => {
     assert.match(config,/args = \["-y", "opencode-native-tools-mcp@latest"\]/)
     assert.equal((agents.match(/opencode-native-tools:start/g)||[]).length,1)
     assert.match(agents,/Codex native file-editing tools/)
+    assert.match(agents,/not `resources\/read`/)
+    assert.match(agents,/do not repeatedly probe them/)
     assert.match(agents,/Keep this user instruction/)
     assert.deepEqual({mcpConfigured:result.mcpConfigured,directOnly:result.directOnly,agentsConfigured:result.agentsConfigured},{mcpConfigured:true,directOnly:false,agentsConfigured:true})
     await unapplyCodexConfig()

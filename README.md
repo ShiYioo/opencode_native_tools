@@ -104,6 +104,14 @@ opencode_native_tools  ...  enabled
 
 Codex 应调用 `read`、`glob`、`grep`、`write`、`edit`、`apply_patch`、`bash` 等同名 MCP 工具。
 
+## MCP 资源与文件读取
+
+`resources/read` 和 `read` 工具是不同接口。读取项目文件时，调用 `read` 或 `readMany` 工具并传入 `filePath`，不要把文件路径作为资源 URI。
+
+服务支持 `resources/list`、`resources/templates/list` 和 `resources/read`，并在初始化时声明资源能力。资源列表只提供 `opencode-tools://status`，返回服务诊断信息；为兼容已有诊断探测，`test` 也可作为这个资源的别名。未知资源返回 `-32002`，而不是 `-32601 Method not found`；缺少或无效的 `uri` 返回 `-32602`。
+
+诊断资源是可选的，不需要在每次读取或搜索文件前调用，也不应反复探测。旧版出现 `resources/read ... Method not found` 时，更新包并重启 MCP 连接；再次运行 `apply` 可更新全局 `AGENTS.md` 中的调用说明。
+
 ## 项目根目录
 
 `OPENCODE_TOOLS_ROOT` 用于固定该 MCP 默认操作的项目目录。未设置时，服务使用 MCP Client 启动时的工作目录；只有在全局配置需要固定到某个仓库时，才需要设置它。
