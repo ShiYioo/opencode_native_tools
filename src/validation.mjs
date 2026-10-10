@@ -20,3 +20,11 @@ export function integer(tool, args, key, options = {}) {
   if (!Number.isInteger(value) || (options.min !== undefined && value < options.min) || (options.max !== undefined && value > options.max)) throw toolError(tool, `${key} must be an integer${options.min !== undefined ? ` >= ${options.min}` : ""}`)
   return value
 }
+
+export function validateGrepOptions(args) {
+  if(args.outputMode!==undefined&&!["content","files_with_matches","count"].includes(args.outputMode))throw toolError("grep","outputMode must be content, files_with_matches, or count")
+  if(args.ignoreCase!==undefined&&typeof args.ignoreCase!=="boolean")throw toolError("grep","ignoreCase must be a boolean")
+  integer("grep",args,"limit",{optional:true,min:1,max:1000})
+  integer("grep",args,"offset",{optional:true,min:0,max:1000000})
+  integer("grep",args,"context",{optional:true,min:0,max:20})
+}

@@ -17,6 +17,7 @@ import { atomicWrite, transactionalCommit } from "./store.mjs"
 import { CUSTOMIZE_OPENCODE_SKILL } from "./customize-opencode-skill.mjs"
 import { parseSkillMarkdown } from "./frontmatter.mjs"
 import { formatFile } from "./formatter.mjs"
+import { validateGrepOptions } from "./validation.mjs"
 
 const READ_LIMIT = 2000, MAX_LINE_LENGTH = 2000, READ_BYTES = 50 * 1024, READ_MANY_LIMIT = 8, READ_MANY_BYTES = 100 * 1024
 const BINARY_EXTENSIONS = new Set([".zip", ".tar", ".gz", ".exe", ".dll", ".so", ".class", ".jar", ".war", ".7z", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".odt", ".ods", ".odp", ".bin", ".dat", ".obj", ".o", ".a", ".lib", ".wasm", ".pyc", ".pyo"])
@@ -150,6 +151,7 @@ export function createRuntime(root) {
       throw new Error(`File not found: ${path}${choices.length ? `\n\nDid you mean one of these?\n${choices.join("\n")}` : ""}`)
     }
     if (info.isDirectory()) {
+      if(args._textOnly)throw new Error("readMany only supports text files; use read for directories")
       const entries = (await readdir(path, { withFileTypes: true })).sort((a,b) => a.name.localeCompare(b.name))
       const names=[]
       for (const entry of entries) {
@@ -169,6 +171,7 @@ export function createRuntime(root) {
     const sample=Buffer.alloc(Math.min(4096,Number(info.size)))
     try { if(sample.length) await handle.read(sample,0,sample.length,0) } finally { await handle.close() }
     const mime=attachmentMime(sample) ?? fallbackMime(path)
+    if(mime&&args._textOnly)throw new Error("readMany only supports text files; use read for image and PDF attachments")
     const bytes=mime?await readFile(path,{signal}):undefined
     if(mime) { const output=mime==="application/pdf"?"PDF read successfully":"Image read successfully",details={path,type:mime,startLine:null,endLine:null,totalLines:null,nextOffset:null,truncated:false,reason:null}; return {title:title(path),output,attachment:{mimeType:mime,data:bytes.toString("base64")},metadata:{...details,externalPaths:external(path)?[path]:[]},structuredContent:args.responseFormat==="detailed"?details:null} }
     if (binary(path, sample)) throw new Error(`Cannot read binary file: ${path}`)
@@ -180,8 +183,8 @@ export function createRuntime(root) {
       if(count<offset)return
       if(shown.length>=limit){more=true;return}
       if(line.length>MAX_LINE_LENGTH)line=line.slice(0,MAX_LINE_LENGTH)+`... (line truncated to ${MAX_LINE_LENGTH} chars)`
-      const size=Buffer.byteLength(line,"utf8")+(shown.length?1:0)
-      if(used+size>maxBytes){cut=true;more=true;stopped=true;return}
+      const size=Buffer.byteLength(`${count}: ${line}`,"utf8")+(shown.length?1:0)
+      if(used+size>Math.max(0,maxBytes-128)){cut=true;more=true;stopped=true;return}
       shown.push(line);used+=size
     }
     const stream=createReadStream(path,{signal})
@@ -189,7 +192,7 @@ export function createRuntime(root) {
       pending+=decoder.decode(chunk,{stream:true})
       let index
       while(!stopped&&(index=pending.indexOf("\n"))>=0){const line=pending.slice(0,index).replace(/\r$/,"");pending=pending.slice(index+1);consume(line)}
-      if(stopped)stream.destroy()
+      if(stopped)break
     }
     if(!stopped){pending+=decoder.decode();if(pending!=="")consume(pending.replace(/\r$/,""))}
     if(offset > count && !(count === 0 && offset === 1)) throw new Error(`Offset ${offset} is out of range for this file (${count} lines)`)
@@ -205,15 +208,20 @@ export function createRuntime(root) {
     const output=[], files=[], externalPaths=[]
     let used=0, nextFileIndex=null, truncated=false
     for(let index=0;index<args.files.length;index++) {
+      if(signal?.aborted)throw new Error("readMany aborted")
       const item=args.files[index], header=`== ${item.filePath} ==\n`
       if(used+Buffer.byteLength(header,"utf8")+256>READ_MANY_BYTES) { truncated=true;nextFileIndex=index;break }
       try {
-        const result=await read({...item,limit:item.limit??200,responseFormat:"detailed",_maxBytes:Math.max(1,READ_MANY_BYTES-used-Buffer.byteLength(header,"utf8")-192)},session,signal)
+        const result=await read({...item,limit:item.limit??200,responseFormat:"detailed",_textOnly:true,_maxBytes:Math.max(1,READ_MANY_BYTES-used-Buffer.byteLength(header,"utf8")-192)},session,signal)
+        if(result.metadata.reason==="maxBytes"&&result.metadata.endLine<result.metadata.startLine){
+          truncated=true;nextFileIndex=index;break
+        }
         const block=`${header}${result.output}`
         output.push(block);used+=Buffer.byteLength(block,"utf8")+(output.length>1?2:0)
         files.push({filePath:item.filePath,status:"ok",...result.structuredContent})
         externalPaths.push(...(result.metadata.externalPaths??[]))
       } catch(error) {
+        if(signal?.aborted)throw error
         const message=error instanceof Error?error.message:String(error), block=`${header}[error: ${message}]`
         output.push(block);used+=Buffer.byteLength(block,"utf8")+(output.length>1?2:0)
         files.push({filePath:item.filePath,status:"error",error:message})
@@ -227,7 +235,7 @@ export function createRuntime(root) {
   async function globFiles(args, _session, signal) {
     await config
     const cwd = resolvePath(args.path), info=await stat(cwd); if(!info.isDirectory()) throw new Error(`glob path must be a directory: ${cwd}`)
-    const result=await rgLines(["--no-config","--files","--hidden",`--glob=${args.pattern}`,"--glob=!**/.git/**","."],cwd,{signal}),files=result.rows.map(file=>resolve(cwd,file)),truncated=result.truncated||files.length===100,list=files
+    const result=await rgLines(["--no-config","--files","--hidden",`--glob=${args.pattern}`,"--glob=!**/.git/**","."],cwd,{signal}),files=result.rows.map(file=>resolve(cwd,file)),truncated=result.truncated,list=files
     return {title:title(cwd),output:list.length ? [...list,...(truncated?["","(Results are truncated: showing first 100 results. Consider using a more specific path or pattern.)"]:[])].join("\n") : "No files found",metadata:{count:list.length,truncated,externalPaths:external(cwd)?[cwd]:[]}}
   }
 
@@ -257,10 +265,29 @@ export function createRuntime(root) {
   async function grep(args, _session, signal) {
     await config
     if (!args.pattern) throw new Error("pattern is required")
+    validateGrepOptions(args)
     const path = resolvePath(args.path), externalPaths=external(path)?[path]:[];let input;try{input=await stat(path)}catch(error){if(error?.code!=="ENOENT")throw error};const cwd = input?.isDirectory() ? path : dirname(path)
-    const result = await rgLines(["--no-config", "--json", "--hidden", "--no-messages", ...(args.include ? [`--glob=${args.include}`] : []), "--glob=!**/.git/**", "--", args.pattern, "."], cwd,{signal}), rows=result.rows.map(line=>{try{const item=JSON.parse(line);if(item.type!=="match")return;const data=item.data;return {path:resolve(cwd,data.path.text.replace(/^(?:\.[\\/])+/,"")),line:data.line_number,text:(data.lines.text.length>2000?`${data.lines.text.slice(0,2000)}...`:data.lines.text).replace(/\r?\n$/,"")}}catch{}}).filter(Boolean), truncated=result.truncated||rows.length===100, details={matches:rows.length,truncated,nextOffset:null,reason:truncated?"maxResults":null}
-    if(!rows.length)return {title:args.pattern,output:"No files found",metadata:{...details,externalPaths},structuredContent:args.responseFormat==="detailed"?details:null}
-    const output=[...rows.map(row=>`${row.path}:${row.line}:${row.text}`),...(truncated?[`[truncated matches=${rows.length} reason=maxResults]`]:[])].join("\n")
+    const outputMode=args.outputMode ?? "content", limit=args.limit ?? 100, offset=args.offset ?? 0
+    const text=value=>value.text ?? Buffer.from(value.bytes,"base64").toString("utf8")
+    const select=line=>{
+      const item=JSON.parse(line), data=item.data
+      if(outputMode==="count"){
+        if(item.type!=="end"||!data.stats.matched_lines)return
+        return {path:resolve(cwd,text(data.path)),count:data.stats.matched_lines}
+      }
+      if(item.type!=="match"&&(outputMode!=="content"||item.type!=="context"))return
+      const file=resolve(cwd,text(data.path))
+      if(outputMode==="files_with_matches")return {path:file}
+      const content=text(data.lines).replace(/\r?\n$/,"")
+      return {path:file,line:data.line_number,text:content.length>2000?`${content.slice(0,2000)}...`:content,match:item.type==="match"}
+    }
+    const format=row=>outputMode==="files_with_matches"?row.path:outputMode==="count"?`${row.path}:${row.count}`:`${row.path}${row.match?":":"-"}${row.line}${row.match?":":"-"}${row.text}`
+    const searchArgs=["--no-config","--json","--hidden","--no-messages","--sort=path",...(args.ignoreCase?["--ignore-case"]:[]),...(args.include?[`--glob=${args.include}`]:[]),"--glob=!**/.git/**",...(outputMode==="files_with_matches"?["--max-count=1"]:[]),...(outputMode==="content"&&args.context?[`--context=${args.context}`]:[]),"--",args.pattern,input?.isFile()?path:"."]
+    // Count only selected output entries, not ripgrep's begin/end/summary records.
+    const result=await rgLines(searchArgs,cwd,{signal,limit,offset,maxBytes:50*1024-256,select,sizeOf:row=>Buffer.byteLength(format(row))}), rows=result.rows
+    const matches=outputMode==="count"?rows.reduce((sum,row)=>sum+row.count,0):outputMode==="content"?rows.filter(row=>row.match).length:rows.length
+    const details={outputMode,matches,returned:rows.length,offset,truncated:result.truncated,nextOffset:result.truncated?offset+rows.length:null,reason:result.reason,partial:result.partial ?? false}
+    const output=[...(rows.length?rows.map(format):["No files found"]),...(result.truncated?[`[truncated matches=${matches} nextOffset=${details.nextOffset} reason=${details.reason}]`]:[])].join("\n")
     return {title:args.pattern,output,metadata:{...details,externalPaths},structuredContent:args.responseFormat==="detailed"?details:null}
   }
 
