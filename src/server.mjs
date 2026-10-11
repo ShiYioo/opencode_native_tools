@@ -53,8 +53,13 @@ async function handle(request){
     const uri=request.params?.uri
     if(typeof uri!=="string"||!uri.trim())return failure(request.id,-32602,"uri must be a non-empty string")
     // Retain the literal "test" URI as an alias for older diagnostic probes.
-    if(uri!==statusResource.uri&&uri!=="test")return failure(request.id,-32002,`Resource not found: ${uri}. Use the read or readMany tool for files.`)
-    return result(request.id,{contents:[{uri,mimeType:statusResource.mimeType,text:JSON.stringify({server:"opencode_native_tools",protocolVersion:"2025-06-18",fileAccessTools:["read","readMany"]})}]})
+    // Catch-all: hosts expose read_mcp_resource to models that probe it with invented URIs;
+    // a -32002 error makes them retry the same junk, so answer with a guided success instead.
+    const known=uri===statusResource.uri||uri==="test"
+    const text=JSON.stringify({server:"opencode_native_tools",protocolVersion:"2025-06-18",
+      ...(known?{}:{note:`No resource at "${uri}". The only resource is "${statusResource.uri}" (server diagnostics). For files, call the read or readMany tools with filePath instead.`}),
+      fileAccessTools:["read","readMany"]})
+    return result(request.id,{contents:[{uri,mimeType:statusResource.mimeType,text}]})
   }
   if(request.method==="tools/list")return result(request.id,{tools:tools.map(({handler,...tool})=>tool)})
   if(request.method==="tools/call"){

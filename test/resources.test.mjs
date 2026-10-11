@@ -71,8 +71,12 @@ test("supports MCP diagnostic resources without changing file tools", async () =
     }
     for(const uri of ["opencode-tools://missing","file:///fixture.txt"]){
       const missing=await request("resources/read",{uri})
-      assert.equal(missing.error.code,-32002)
-      assert.match(missing.error.message,/Use the read or readMany tool for files/)
+      assert.equal(missing.error,undefined)
+      assert.equal(missing.result.contents[0].uri,uri)
+      const status=JSON.parse(missing.result.contents[0].text)
+      assert.match(status.note,/No resource at/)
+      assert.match(status.note,/read or readMany tools with filePath/)
+      assert.deepEqual(status.fileAccessTools,["read","readMany"])
     }
     for(const params of [undefined,null,{},[],{uri:null},{uri:7},{uri:""},{uri:"  "}]){
       const invalid=await request("resources/read",params)
